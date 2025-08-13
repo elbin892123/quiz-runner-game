@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Quiz Runner Game</title>
+<style>
+  body { margin: 0; font-family: sans-serif; background: #eee; }
+  canvas { background: #cef; display: block; margin: 0 auto; touch-action: manipulation; }
+  .overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: white;
+    font-size: 5vw; padding: 20px; text-align: center;
+  }
+  .hidden { display: none; }
+  button {
+    padding: 15px 30px; font-size: 5vw; margin-top: 20px;
+    border: none; border-radius: 10px; background: #28a745; color: white;
+  }
+  input {
+    font-size: 5vw; padding: 10px; margin-top: 15px; border-radius: 8px; border: none;
+    width: 80%; max-width: 400px; text-align: center;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Start Screen -->
+<div id="startOverlay" class="overlay">
+  <div>Press Start to Begin</div>
+  <button id="startBtn">Start</button>
+</div>
+
+<!-- Quiz Popup -->
+<div id="quizModal" class="overlay hidden">
+  <div id="quizQuestion">Question?</div>
+  <input type="text" id="quizAnswer" />
+  <button id="quizSubmit">Submit</button>
+</div>
+
+<!-- End Screen -->
+<div id="endOverlay" class="overlay hidden">
+  <div id="endMessage"></div>
+  <button id="retryBtn">Play Again</button>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const startOverlay = document.getElementById('startOverlay');
+const quizModal = document.getElementById('quizModal');
+const endOverlay = document.getElementById('endOverlay');
+const startBtn = document.getElementById('startBtn');
+const retryBtn = document.getElementById('retryBtn');
+const quizQuestion = document.getElementById('quizQuestion');
+const quizAnswer = document.getElementById('quizAnswer');
+const quizSubmit = document.getElementById('quizSubmit');
+const endMessage = document.getElementById('endMessage');
+
+let gameRunning = false;
+let player = { x: 50, y: 0, w: 40, h: 40, vy: 0, jumping: false };
+let obstacles = [];
+let obstacleTimer = 0;
+let score = 0;
+let round = 0;
+let currentQuestion = null;
+let availableQuestions = [];
+
+const quizDataMaster = [
+  { q: '2 + 2', a: '4' }, { q: '5 * 3', a: '15' }, { q: '10 / 2', a: '5' },
+  { q: 'Capital of France', a: 'paris' }, { q: 'Color of the sky', a: 'blue' },
+  { q: 'Opposite of hot', a: 'cold' }, { q: '7 - 3', a: '4' },
+  { q: 'First month of year', a: 'january' }, { q: 'Square root of 16', a: '4' },
+  { q: 'Planet we live on', a: 'earth' }, { q: '4 + 4', a: '8' },
+  { q: 'Capital of Japan', a: 'tokyo' }, { q: '9 - 5', a: '4' },
+  { q: '5 squared', a: '25' }, { q: 'Color of grass', a: 'green' },
+  { q: '12 / 4', a: '3' }, { q: 'Largest ocean', a: 'pacific' },
+  { q: '6 * 6', a: '36' }, { q: 'Day after Monday', a: 'tuesday' },
+  { q: 'Opposite of up', a: 'down' }
+];
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight * 0.6; // keep some space for overlays
+  player.y = canvas.height - player.h - 10;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+function resetGame() {
+  player.x = 50;
+  player.y = canvas.height - player.h - 10;
+  player.vy = 0;
+  player.jumping = false;
+  obstacles = [];
+  obstacleTimer = 0;
+  score = 0;
+  round = 0;
+  availableQuestions = [...quizDataMaster];
+  shuffle(availableQuestions);
+}
+
+function openQuiz() {
+  if (availableQuestions.length === 0) {
+    availableQuestions = [...quizDataMaster];
+    shuffle(availableQuestions);
+  }
+  currentQuestion = availableQuestions.pop();
+  quizQuestion.textContent = currentQuestion.q;
+  quizAnswer.value = '';
+  quizModal.classList.remove('hidden');
+}
+
+function closeQuiz() {
+  quizModal.classList.add('hidden');
+  gameRunning = true;
+  requestAnimationFrame(loop);
+}
+
+startBtn.addEventListener('click', () => {
+  startOverlay.classList.add('hidden');
+  resetGame();
+  openQuiz();
+});
+
+retryBtn.addEventListener('click', () => {
+  endOverlay.classList.add('hidden');
+  resetGame();
+  openQuiz();
+});
+
+quizSubmit.addEventListener('click', () => {
+  if (quizAnswer.value.trim().toLowerCase() === currentQuestion.a.toLowerCase()) {
+    round++;
+    if (round >= 5) {
+      gameRunning = false;
+      endMessage.textContent = `Game Complete! Final Score: ${score}`;
+      endOverlay.classList.remove('hidden');
+    } else {
+      closeQuiz();
+    }
+  } else {
+    openQuiz(); // new random question
+  }
+});
+
+// Keyboard jump
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !player.jumping && quizModal.classList.contains('hidden')) {
+    jump();
+  }
+});
+
+// Touch jump
+canvas.addEventListener('touchstart', () => {
+  if (!player.jumping && quizModal.classList.contains('hidden')) {
+    jump();
+  }
+});
+
+function jump() {
+  player.vy = -canvas.height * 0.02; // scaled jump force
+  player.jumping = true;
+}
+
+function spawnObstacle() {
+  const size = Math.max(30, canvas.height * 0.08);
+  obstacles.push({ x: canvas.width, y: canvas.height - size - 10, w: size, h: size });
+}
+
+function loop() {
+  if (!gameRunning || !quizModal.classList.contains('hidden')) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Player physics
+  player.y += player.vy;
+  player.vy += canvas.height * 0.0005; // gravity
+  if (player.y >= canvas.height - player.h - 10) {
+    player.y = canvas.height - player.h - 10;
+    player.jumping = false;
+  }
+
+  // Obstacles
+  obstacleTimer++;
+  if (obstacleTimer > 100) {
+    spawnObstacle();
+    obstacleTimer = 0;
+  }
+  for (let i = 0; i < obstacles.length; i++) {
+    obstacles[i].x -= canvas.width * 0.008;
+    if (obstacles[i].x + obstacles[i].w < 0) obstacles.splice(i, 1);
+  }
+
+  // Collision detection
+  for (let obs of obstacles) {
+    if (player.x < obs.x + obs.w && player.x + player.w > obs.x &&
+        player.y < obs.y + obs.h && player.y + player.h > obs.y) {
+      gameRunning = false;
+      endMessage.textContent = `Game Over! Final Score: ${score}`;
+      endOverlay.classList.remove('hidden');
+    }
+  }
+
+  // Draw player
+  ctx.fillStyle = 'red';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  // Draw obstacles
+  ctx.fillStyle = 'green';
+  for (let obs of obstacles) {
+    ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+  }
+
+  // Score
+  score++;
+  ctx.fillStyle = 'black';
+  ctx.font = `${canvas.height * 0.05}px sans-serif`;
+  ctx.fillText('Score: ' + score, 10, 40);
+
+  // Trigger quiz every 200 points
+  if (score % 200 === 0) {
+    gameRunning = false;
+    openQuiz();
+    return;
+  }
+
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
